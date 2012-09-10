@@ -1,0 +1,37 @@
+print("Copying disk contents to hard disk...")
+
+if fs.exists("/courierCommon") then
+  fs.delete("/courierCommon")
+end
+fs.copy("/disk/courierCommon", "/courierCommon")
+print "  Courier Shared API"
+
+if fs.exists("/endpoint") then
+  fs.delete("/endpoint")
+end
+fs.copy("/disk/endpoint", "/endpoint")
+print "  Endpoint Component"
+
+fs.delete("/courier")
+fs.copy("/disk/courier", "/courier")
+print "  Courier Component"
+
+if fs.exists("/junction") then
+  fs.delete("/junction")
+end
+fs.copy("/disk/junction", "/junction")
+print "  Junction Component"
+
+if fs.exists("/outbox") then
+  fs.delete("/outbox")
+end
+fs.copy("/disk/outbox", "/outbox")
+print "  Outbox Component"
+
+if not fs.exists("/update") then
+  fs.copy("/disk/update", "/update")
+end
+print "  Updater Shortcut"
+
+print "Done."
+print ""

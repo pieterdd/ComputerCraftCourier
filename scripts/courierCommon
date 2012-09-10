@@ -1,0 +1,154 @@
+-- Returns the API version number
+function version()
+  return "v0.0096"
+end
+
+-- Checks if a string starts with
+-- a certain symbol
+function startsWith(haystack, needle)
+  index = string.find(haystack, needle)
+  return index == 1
+end
+
+-- Process a goods dropping request
+function dropGoods(destID)
+  print("Courier has arrived. Releasing goods...")
+  for i = 1, 9 do
+    turtle.select(i)
+	turtle.drop()
+  end
+  
+  if destID ~= nil then
+    courierCommon.send(destID, "DROPPED GOODS")
+  end
+end
+
+-- Picks up dropped good across 9 slots
+function suckGoods()
+  print("Picking up goods...")
+  for i = 1, 9 do
+    turtle.select(i)
+	
+	-- TODO: this call requires ComputerCraft 1.4,
+    -- which is not available in TechnicLauncher yet.
+	turtle.suck() 
+  end 
+end
+
+-- Rounds a floating point number
+function round(number)
+  if number == nil then
+    return nil
+  end
+
+  overflow = number % 1
+  
+  if overflow < 0.5 then
+	return number - overflow
+  else
+    return number + (1.0 - overflow)
+  end
+end
+
+-- Performs data receive and logs
+-- the event
+function receive(timeout)
+  local id,msg,dist
+  if timeout == nil then
+    id,msg,dist = rednet.receive()
+  else
+    id,msg,dist = rednet.receive(timeout)
+  end
+  
+  if id == nil or msg == nil or dist == nil then
+    print("[ IN] No new messages")
+  else
+    print("[ IN] #" .. id .. ": " .. msg .. " (" .. dist .. " blocks)")
+  end
+  
+  return id,msg,dist
+end
+
+-- Performs data broadcast and logs
+-- the event
+function broadcast(msg)
+  print("[BCA] " .. msg)
+  return rednet.broadcast(msg)
+end
+
+-- Performs data send and logs the
+-- event
+function send(id, msg, wait)
+  print("[OUT] #" .. id .. ": " .. msg)
+  rednet.send(id, msg, wait)
+end
+
+-- Checks if a certain command should
+-- be ignored by 'id'
+function shouldIgnore(msg, id)
+  local ignorePos = string.find(msg, "IGNORE")
+  
+  if ignorePos == nil then
+    return false
+  end
+
+  local ignoreStr = string.sub(msg, ignorePos)
+  local idIgnorePos = string.find(ignoreStr, id)
+  return not (idIgnorePos == nil)
+end
+
+-- Builds the IGNORE part of a command
+-- string from the IDs in the ids table
+function buildIgnore(ids)
+  local ignoreStr = " IGNORE "
+  
+  for key, id in ipairs(ids) do
+    ignoreStr = ignoreStr .. id .. " "
+  end
+  
+  return ignoreStr
+end
+
+-- Extract the ignore string from msg
+function extractIgnore(msg)
+  local ignorePos = string.find(msg, " IGNORE ")
+  
+  if ignorePos == nil then
+    return " IGNORE "
+  end
+  
+  local ignoreString = string.sub(msg, ignorePos)
+  return ignoreString
+end
+
+-- Turns a string of items that are separated
+-- by delimiter 'div' into a table
+function explode(div,str) -- credit: http://richard.warburton.it
+  if (div == '') then
+    return false
+  end
+  
+  local pos, arr = 0, {}
+  
+  -- For each divider found
+  for st, sp in function() return string.find(str, div, pos, true) end do
+    table.insert(arr, string.sub(str, pos, st-1)) -- Attach chars left of current divider
+    pos = sp + 1 -- Jump past current divider
+  end
+  table.insert(arr, string.sub(str, pos)) -- Attach chars right of last divider
+  return arr
+end
+
+-- Extract destination ID if it's the first
+-- argument of a command
+function extractDestination(msg)
+  local firstSpacePos = string.find(msg, "%s")
+  local destID = string.sub(msg, firstSpacePos + 1)
+  local destSpacePos = string.find(destID, "%s")
+  
+  if destSpacePos ~= nil then
+    destID = string.sub(destID, 1, destSpacePos)
+  end
+  
+  return tonumber(destID)
+end

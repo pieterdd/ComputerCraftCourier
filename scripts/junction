@@ -1,0 +1,95 @@
+os.loadAPI("courierCommon")
+
+-- Respond to network discovery
+function replyDiscover(id, msg, dist)
+  sendBeaconFrame(id, dist)
+end
+
+-- Sends a beacon frame that identifies
+-- this junction if the requester is on
+-- this road
+function sendBeaconFrame(id, dist)
+  if dist == courierCommon.round(dist) then
+    courierCommon.broadcast("JUNCTION")
+  end
+end
+
+-- Respond to a find request, assuming
+-- the ID is an endpoint
+function replyFind(id, msg, dist)
+  -- Ignore request if it's not coming from a
+  -- nearby junction or a junction on the same
+  -- X/Y line.
+  if courierCommon.shouldIgnore(msg, os.computerID()) or (dist > 2 and dist ~= courierCommon.round(dist)) then
+    print("[DEBUG] Ignoring FIND command from " .. id)
+    return
+  end
+
+  local ignoreString = courierCommon.extractIgnore(msg)
+  local requestedID = courierCommon.extractDestination(msg)
+  local findRequest = "FIND " .. requestedID .. ignoreString .. id .. " "
+  print("[DEBUG] Issuing FIND request: " .. findRequest)
+  
+  courierCommon.broadcast(findRequest)
+  local foundPath,id2,msg2,dist2 = false
+  
+  repeat
+    id2,msg2,dist2 = courierCommon.receive(10)
+	
+	-- Only accept answers from other junction computers
+	-- or endpoints along the same X or Y line
+	if id2 ~= nil then
+	  if dist2 <= 2 and courierCommon.startsWith(msg2, "ROUTE ") then
+	    foundPath = true
+	  elseif dist2 == courierCommon.round(dist2) and courierCommon.startsWith(msg2, "ENDPOINT") then
+	    foundPath = true
+	    msg2 = "ROUTE "
+	  end
+	end
+  until id2 == nil or foundPath == true
+  
+  if foundPath == true then
+    courierCommon.send(id, msg2 .. id2 .. " ")
+  else
+    print("No valid route to " .. requestedID .. " here. Move along!")
+  end
+end
+
+-- Respond to a request for the ID
+-- of the courier that operates on this
+-- line.
+function replyCourier(id, msg, dist)
+  courierCommon.broadcast("DISCOVER")
+  local courID
+  
+  repeat
+    print("[DEBUG] Waiting for courier")
+    local id2,msg2,dist2 = courierCommon.receive(5)
+	
+	if dist2 == courierCommon.round(dist2) and msg2 == "COURIER" then
+	  courID = id2
+	end
+  until courID ~= nil
+  
+  courierCommon.send(id, "HAS " .. courID)
+end
+
+-- Listens for incoming requests
+function listen()
+  local id,msg,dist = courierCommon.receive()
+  
+  if courierCommon.startsWith(msg, "DISCOVER") then
+    replyDiscover(id, msg, dist)
+  elseif courierCommon.startsWith(msg, "FIND ") then
+    replyFind(id, msg, dist)
+  elseif courierCommon.startsWith(msg, "COURIER") then
+    replyCourier(id, msg, dist)
+  end
+end
+
+-- MAIN CODE
+print("JUNCTION COMPONENT " .. courierCommon.version())
+rednet.open("top")
+while true do
+  listen()
+end

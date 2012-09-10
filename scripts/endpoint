@@ -1,0 +1,67 @@
+os.loadAPI("courierCommon")
+
+-- Listen for incoming commands
+-- and respond to them
+function listen()
+  sendID,msg,dist = courierCommon.receive()
+  
+  if sendID == nil or msg == nil or dist == nil then
+    return
+  end
+  
+  if courierCommon.startsWith(msg, "DISCOVER") then
+    replyDiscover(sendID, msg, dist)
+  elseif courierCommon.startsWith(msg, "FIND") then
+    replyFind(sendID, msg, dist)
+  end
+end
+
+-- Respond to network discovery
+function replyDiscover(id, msg, dist)
+  if not courierCommon.shouldIgnore(msg, os.computerID()) then
+    sendBeaconFrame(id, dist)
+  end
+end
+
+-- Respond to find query
+function replyFind(id, msg, dist)
+  local requestedID = courierCommon.extractDestination(msg)
+  
+  if requestedID == os.computerID() then
+    sendBeaconFrame(id, dist)
+  end
+end
+
+-- Sends a beacon frame that identifies
+-- this endpoint if the requester is on
+-- this road
+function sendBeaconFrame(id, dist)
+  if dist == courierCommon.round(dist) then
+    courierCommon.send(id, "ENDPOINT NONAME")
+  end
+end
+
+-- The server continually listens for
+-- incoming messages
+function server()
+  while true do
+	listen()
+  end
+end
+
+-- The client lets the user call the
+-- courier for pickup
+function pickup()
+  while true do
+	read()
+	courierCommon.broadcast("PICKUP 17") -- TODO
+  end
+end
+
+-- MAIN CODE
+rednet.open("top")
+print("ENDPOINT COMPONENT " .. courierCommon.version())
+print("Press Enter at any time to call the courier. If the courier is busy doing something else, he will not respond.")
+print("")
+
+parallel.waitForAll(server, pickup)

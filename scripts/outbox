@@ -1,0 +1,19 @@
+os.loadAPI("courierCommon")
+
+-- Listens for incoming pickup request
+function listen()
+  id,msg,dist = courierCommon.receive()
+  
+  if courierCommon.startsWith(msg, "DROP GOODS") and dist == 1 then
+    courierCommon.dropGoods(id)
+  elseif msg == "DISCOVER" and dist == courierCommon.round(dist) then
+    courierCommon.send(id, "OUTBOX")
+  end
+end
+
+-- MAIN CODE
+print("OUTBOX COMPONENT " .. courierCommon.version())
+rednet.open("right")
+while true do
+  listen()
+end

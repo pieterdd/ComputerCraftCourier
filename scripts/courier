@@ -1,0 +1,279 @@
+os.loadAPI("courierCommon")
+
+-- Position the turtle in the direction
+-- that brings us nearer to the destination
+function positionTurtle(id, dist)
+  turtle.forward()
+  courierCommon.send(id, "DISCOVER", true)
+  id2,msg2,dist2 = courierCommon.receive()
+  turtle.back()
+  
+  if dist < dist2 then
+    turtle.turnRight()
+	turtle.turnRight()
+  end
+end
+
+-- Pick up goods when the courier
+-- is at an endpoint
+function pickupGoods()
+  turtle.turnRight()
+  turtle.forward()
+  courierCommon.broadcast("DROP GOODS")
+  courierCommon.receive()
+  
+  turtle.back()
+  turtle.turnRight()
+end
+
+-- Finds the next endpoint or junction
+-- to visit.
+function findNextTarget(visited)
+  courierCommon.broadcast("DISCOVER" .. courierCommon.buildIgnore(visited))
+  local nearestID = nil
+  local nearestDist = 9999
+  
+  local id,msg,dist
+  repeat
+    id,msg,dist = courierCommon.receive(0.5)
+	
+    if not (dist == nil) and dist == courierCommon.round(dist) and dist < nearestDist then
+      nearestID = id
+      nearestDist = dist
+    end
+  until id == nil or msg == nil or dist == nil
+  
+  if nearestID == nil then
+    print("Routing error: couldn't find next target")
+    courierCommon.broadcast("COURIER FAIL")
+  end
+  
+  return nearestID
+end
+
+-- Handles a pickup request
+function replyPickup(id, msg, dist)
+  -- Get destination ID
+  if not courierCommon.startsWith(msg, "PICKUP ") then
+    courierCommon.broadcast("USAGE: PICKUP id [IGNORE id1 id2 ... ]")
+	return
+  end
+  local destID = courierCommon.extractDestination(msg)
+
+  -- Phase 1: answer the call
+  positionTurtle(id, dist)
+  print("Answering pickup call...")
+  stepUntilBlocked()
+  
+  -- Phase 2: if we're at a junction now,
+  -- we must be operating on the wrong line
+  if standingNextToJunction() then
+    turtle.back()
+    return
+  end
+  
+  -- Phase 3: pick up goods
+  print("Ready to pick up goods.")
+  pickupGoods()
+  
+  -- Phase 4: route to the end of the pipe
+  stepUntilBlocked()
+  routeToNextTarget(destID, {id})
+end
+
+-- Returns true only if there is a junction
+-- immediately neighboring the courier
+function standingNextToJunction()
+  courierCommon.broadcast("DISCOVER")
+  local closestDist, id, msg, dist = 9999
+  
+  repeat
+    id, msg, dist = courierCommon.receive(5)
+	
+	if dist == 1 and msg == "JUNCTION" then
+	  return true
+	end
+  until id == nil
+  
+  return false
+end
+
+-- March forward until something gets
+-- in the way.
+function stepUntilBlocked()
+  while not turtle.detect() do
+    turtle.forward()
+  end
+end
+
+-- Routes the package to the next 
+-- junction/endpoint
+function routeToNextTarget(destID, visited)
+  local nextTarget = findNextTarget(visited)
+  
+  if nextTarget == destID then
+    print("Arrived!")
+	turtle.turnLeft()
+	turtle.forward()
+	courierCommon.dropGoods()
+	turtle.back()
+	turtle.turnLeft()
+	stepUntilBlocked()
+	turtle.back()
+  else
+    print("Finding next courier...")
+	local nextCourierID = findNextCourier(destID, visited)
+	
+	if nextCourierID == nil then
+	  print("No route found. Sorry.")
+	  courierCommon.broadcast("ROUTING FAIL")
+	  turtle.back()
+	else
+	  handoverPackage(destID, nextCourierID, visited)
+	  print("Handed over package.")
+	end
+  end
+end
+
+-- Find the ID of the next courier
+function findNextCourier(finalTarget, visited)
+  courierCommon.broadcast("FIND " .. finalTarget)
+  
+  -- Only accept answers from the junction
+  -- in front
+  local foundAnswer,id,msg,dist = false
+  repeat
+    id,msg,dist = courierCommon.receive(10)
+	
+	if dist == 1 and courierCommon.startsWith(msg, "ROUTE ") then
+	  foundAnswer = true
+	end
+  until foundAnswer == true or id == nil
+  
+  if foundAnswer == true then
+    local lastSpacePos = string.len(msg) - string.find(msg:reverse(), "%s", 2) + 1
+	local lastID = string.sub(msg, lastSpacePos + 1)
+	lastID = tonumber(string.sub(lastID, 1, -2))
+	
+	-- Get the ID of the courier that operates
+    -- on the junction
+	courierCommon.send(lastID, "COURIER")
+	local courID
+	repeat
+	  local id2,msg2,dist2 = courierCommon.receive(5)
+	  
+	  if id2 ~= nil and courierCommon.startsWith(msg2, "HAS") then
+	    courID = courierCommon.extractDestination(msg2)
+	  elseif id2 == nil then
+	    print("Couldn't contact next courier. Giving up.")
+		courierCommon.broadcast("ROUTING FAIL")
+		turtle.back()
+		return nil
+	  end
+	until courID ~= nil
+	
+	return courID
+  end
+  
+  return nil
+end
+
+-- Hands over package to the next courier
+function handoverPackage(destID, courierID, visited)
+  courierCommon.send(courierID, "TRANSFER " .. destID .. courierCommon.buildIgnore(visited))
+  print("Waiting for courier to accept...")
+  local accepted = false
+  
+  repeat
+    id,msg,dist = courierCommon.receive(5)
+	
+	if id ~= nil and courierCommon.startsWith(msg, "ACCEPT") then
+	  accepted = true
+	end
+  until accepted == true
+
+  turtle.down()
+  turtle.forward()
+  courierCommon.dropGoods(courierID)
+  turtle.back()
+  turtle.up()
+  turtle.back()
+end
+
+-- Reply to a transfer request from another
+-- courier. The courier first goes to the
+-- junction before accepting.
+function replyTransfer(id, msg, dist)
+  replyTransfer_AcceptOnJunction(id)
+  
+  -- Wait until the dropper confirms
+  local dropped = false
+  repeat
+    local id2,msg2,dist2 = courierCommon.receive()
+	
+	if id == id2 and msg2 == "DROPPED GOODS" then
+	  dropped = true
+	end
+  until dropped == true
+  
+  turtle.forward()
+  turtle.turnRight()
+  turtle.turnRight()
+  turtle.forward()
+  turtle.forward()
+  turtle.up()
+  
+  local destID = courierCommon.extractDestination(msg)
+  local visited = courierCommon.explode(" ", courierCommon.extractIgnore(msg)) -- TODO: ignore previous junction
+  stepUntilBlocked()
+  routeToNextTarget(destID, visited)
+end
+
+-- Moves the courier to the junction to accept the transfer
+function replyTransfer_AcceptOnJunction(courierID)
+  courierCommon.broadcast("DISCOVER")
+  local juncID, juncDist = nil
+  
+  repeat
+    local id2,msg2,dist2 = courierCommon.receive()
+	
+	if id2 ~= nil and dist2 == courierCommon.round(dist2) and courierCommon.startsWith(msg2, "JUNCTION") then
+	  print("[DEBUG] Accepting junction ID " .. id2)
+      juncID = id2
+      juncDist = dist2
+    end
+  until juncID ~= nil
+  
+  positionTurtle(juncID, juncDist)
+  stepUntilBlocked()
+  turtle.down()
+  turtle.forward()
+  courierCommon.send(courierID, "ACCEPT")
+end
+
+-- Reply to discovery request
+function replyDiscover(id, msg, dist)
+  if dist == courierCommon.round(dist) and not courierCommon.shouldIgnore(msg, os.computerID()) then
+    courierCommon.send(id, "COURIER")
+  end
+end
+
+-- Listens for incoming pickup request
+function listen()
+  id,msg,dist = courierCommon.receive()
+  
+  if courierCommon.startsWith(msg, "PICKUP") and dist == courierCommon.round(dist) then
+    replyPickup(id, msg, dist)
+  elseif courierCommon.startsWith(msg, "TRANSFER") then
+    replyTransfer(id, msg, dist)
+  elseif courierCommon.startsWith(msg, "DISCOVER") then
+    replyDiscover(id, msg, dist)
+  end
+end
+
+-- MAIN CODE
+print("COURIER COMPONENT " .. courierCommon.version())
+rednet.open("right")
+while true do
+  listen()
+end
